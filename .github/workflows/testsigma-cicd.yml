@@ -1,0 +1,92 @@
+name: Testsigma CI/CD Integration
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  run-testsigma-tests:
+    name: Trigger & Monitor Testsigma Test Plan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Trigger Testsigma Test Plan
+        id: trigger
+        run: |
+          echo "Triggering Testsigma Test Plan ID: ${{ secrets.TESTSIGMA_TEST_PLAN_ID }}"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            "https://app.testsigma.com/api/v1/execution_results" \
+            -H "Authorization: Bearer ${{ secrets.TESTSIGMA_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"executionId\": ${{ secrets.TESTSIGMA_TEST_PLAN_ID }}}")
+
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n -1)
+
+          echo "HTTP Status: $HTTP_STATUS"
+          echo "Response: $BODY"
+
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "201" ]; then
+            echo "Failed to trigger test plan. HTTP Status: $HTTP_STATUS"
+            exit 1
+          fi
+
+          RUN_ID=$(echo "$BODY" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])")
+          echo "Test run triggered. Run ID: $RUN_ID"
+          echo "run_id=$RUN_ID" >> $GITHUB_OUTPUT
+
+      - name: Poll for Test Plan Completion
+        run: |
+          RUN_ID="${{ steps.trigger.outputs.run_id }}"
+          MAX_WAIT=3600   # 1 hour timeout
+          POLL_INTERVAL=30
+          ELAPSED=0
+
+          echo "Polling for completion of run ID: $RUN_ID"
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            RESPONSE=$(curl -s -X GET \
+              "https://app.testsigma.com/api/v1/execution_results/$RUN_ID" \
+              -H "Authorization: Bearer ${{ secrets.TESTSIGMA_API_KEY }}" \
+              -H "Content-Type: application/json")
+
+            STATUS=$(echo "$RESPONSE" | python3 -c "import sys, json; print(json.load(sys.stdin).get('status', 'UNKNOWN'))")
+            echo "[$ELAPSED s] Current status: $STATUS"
+
+            case "$STATUS" in
+              PASSED)
+                echo "Test plan PASSED."
+                exit 0
+                ;;
+              FAILED)
+                echo "Test plan FAILED."
+                exit 1
+                ;;
+              ABORTED)
+                echo "Test plan was ABORTED."
+                exit 1
+                ;;
+              QUEUED|IN_PROGRESS|RUNNING)
+                echo "Still running... waiting ${POLL_INTERVAL}s"
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+                ;;
+              *)
+                echo "Unknown status: $STATUS. Will retry..."
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+                ;;
+            esac
+          done
+
+          echo "Timed out after ${MAX_WAIT}s waiting for test plan to complete."
+          exit 1
