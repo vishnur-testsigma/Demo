@@ -2,7 +2,7 @@
 #**********************************************************************
 #
 # TESTSIGMA_API_KEY -> API key generated under Testsigma App >> Configuration >> API Keys
-#
+
 # TESTSIGMA_TEST_PLAN_ID -> Testsigma Testplan ID.
 # You can get this from Testsigma App >> Test Plans >> <TEST_PLAN_NAME> >> CI/CD Integration
 #
