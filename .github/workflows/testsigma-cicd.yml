@@ -24,8 +24,6 @@ jobs:
       - name: Run Testsigma Test Plan
         run: |
           ./testsigma_cicd.sh \
-            --apikey=${{ secrets.TESTSIGMA_API_KEY }} \
-            --testplanid=${{ secrets.TESTSIGMA_TEST_PLAN_ID }} \
             --maxtimeinmins=60 \
             --reportfilepath=./junit-report.xml \
             --buildno=${{ github.run_number }}
